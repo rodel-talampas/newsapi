@@ -2,52 +2,61 @@
 
 import sys
 from logging import Logger
+
 from news import SearchNews
 
 from PyQt6.QtCore import Qt, QAbstractTableModel
 
-from PyQt6.QtWidgets import QApplication, QFormLayout, QVBoxLayout, QTableView, QPushButton, QLabel, QMainWindow, QLineEdit, QComboBox
+from PyQt6.QtWidgets import QApplication, QWidget, QHBoxLayout, QVBoxLayout, QTableWidgetItem, QTableWidget, QTableView, QPushButton, QLabel, QMainWindow, QLineEdit, QComboBox
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.model = None
-        layout = QVBoxLayout()
-        self.setLayout(layout)
-
-        formLayout = QFormLayout()
-        layout.addLayout(formLayout)
-
         self.setWindowTitle("Latest News")
-        self.setFixedWidth(800)
-        self.setFixedHeight(1000)
-        titleMsg = QLabel("Latest News", parent=self)
-        titleMsg.move(60, 10)
+        self.setFixedWidth(1200)
+        self.setFixedHeight(400)
 
-        self.lblSearch = QLabel("Text Search: ", parent=self)
-        self.lblSearch.move(5, 45)
-        self.lblSort = QLabel("Sort by: ", parent=self)
-        self.lblSort.move(5, 85)
+        widget = MainWidget()
+        self.setCentralWidget(widget)
 
-        self.searchBox = QLineEdit(self)
-        self.searchBox.move(100, 45)
+
+class HLayout(QHBoxLayout):
+    def __init__(self, alignment=None, *args):
+        super().__init__()
+        self.setAlignment(
+            alignment if alignment else Qt.AlignmentFlag.AlignLeft)
+        for w in args:
+            self.addWidget(w)
+
+
+class Title(QVBoxLayout):
+    def __init__(self,):
+        super().__init__()
+        titleMsg = QLabel("Latest News")
+        self.addLayout(HLayout(Qt.AlignmentFlag.AlignCenter, titleMsg))
+
+
+class SearchForm(QVBoxLayout):
+    def __init__(self, parent, result):
+        super().__init__()
+        self.result = result
+        self.parent = parent
+        lblSearch = QLabel("Text Search: ")
+        self.searchBox = QLineEdit()
         self.searchBox.textChanged.connect(self._data_update)
-
-        self.sortField = QComboBox(self)
-        self.sortField.move(90,85)
+        self.addLayout(HLayout(None, lblSearch, self.searchBox))
+        lblSort = QLabel("Sort by: ")
+        self.sortField = QComboBox()
         self.sortField.addItem("author")
         self.sortField.addItem("title")
         self.sortField.addItem("publishAt")
-        self.sortField.currentTextChanged.connect(self._data_update)   
-
-        self.searchButton = QPushButton("Search", self)
-        self.searchButton.move(200,85)
+        self.addLayout(HLayout(None, lblSort, self.sortField))
+        self.searchButton = QPushButton("Search")
         self.searchButton.setEnabled(False)
         self.searchButton.clicked.connect(self._search_news)
-
-        self.table = QTableView()
-        self.table.move(5, 150)
-        self.table.setModel(self.model)
+        self.addLayout(
+            HLayout(Qt.AlignmentFlag.AlignCenter, self.searchButton))
 
     def _data_update(self):
         if "" == self.searchBox.text():
@@ -56,16 +65,84 @@ class MainWindow(QMainWindow):
             self.searchButton.setEnabled(True)
 
     def _search_news(self):
-        print("this is a test")
-        search_news = SearchNews(self.searchBox.text(), self.sortField.itemText(self.sortField.currentIndex()),"2022-09-28")
+        search_news = SearchNews(self.searchBox.text(), self.sortField.itemText(
+            self.sortField.currentIndex()), "2022-09-28")
         self.results = search_news.search()
-        self.model = TableModel(self.results['articles'])
-        self.table.setModel(self.model)
-        self.table.setRowCount(self.results.size)
-        print(self.results['articles'])
+        self._display()
+        # self._display_table()
 
-    def get_results_model(self):
-        return self.model
+    def _display_table(self):
+        table_cols = list(self.results['articles'][0].keys(
+        )) if self.results['articles'] else []
+        table_data = [[*item.values()] for item in self.results['articles']
+                      ] if self.results['articles'] else []
+
+    def _display(self):
+        table_cols = list(self.results['articles'][0].keys(
+        )) if self.results['articles'] else []
+        data = [{key: [
+            item[key] for item in self.results['articles']]} for key in table_cols]
+        table_data = {k: v for d in data for k, v in d.items()}
+        remove_keys = ["content", "urlToImage",
+                       "description", "source"] if table_data else []
+        for key in remove_keys:
+            table_data.pop(key)
+        print(table_data)
+        tableView = TableView(
+            table_data, len(self.results['articles']), len(table_cols)-len(remove_keys))
+        self.result.getTable().close()
+        self.result.setTable(tableView)
+        # self.result.setTable(tableView)
+        # self.parent.addWidget(tableView)
+        # tableView.show()
+
+
+class ResultTable(QHBoxLayout):
+    def __init__(self):
+        super().__init__()
+        self.table = TableView({}, 1, 4)
+        self.addWidget(self.table)
+
+    def getTable(self):
+        return self.table
+
+    def setTable(self, tableView):
+        self.addWidget(tableView)
+        self.table = tableView
+
+
+class MainWidget(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.layout = QVBoxLayout()
+        self.layout.addStretch()
+        self.setLayout(self.layout)
+        self.layout.addLayout(Title())
+        result = ResultTable()
+        search = SearchForm(self.layout, result)
+        self.layout.addLayout(search)
+        self.layout.addLayout(result)
+        self.layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.layout.addStretch()
+
+
+class TableView(QTableWidget):
+    def __init__(self, data, *args):
+        QTableWidget.__init__(self, *args)
+        self.data = data
+        self.setData()
+        self.resizeColumnsToContents()
+        self.resizeRowsToContents()
+
+    def setData(self):
+        horHeaders = []
+        for n, key in enumerate(sorted(self.data.keys())):
+            horHeaders.append(key)
+            for m, item in enumerate(self.data[key]):
+                newitem = QTableWidgetItem(item)
+                self.setItem(m, n, newitem)
+        self.setHorizontalHeaderLabels(horHeaders)
+
 
 class TableModel(QAbstractTableModel):
     def __init__(self, data):
@@ -73,7 +150,11 @@ class TableModel(QAbstractTableModel):
         self._data = data
 
     def data(self, index, role):
-        return self._data[index.row()][index.column()]
+        if role == Qt.ItemDataRole.DisplayRole:
+            # See below for the nested-list data structure.
+            # .row() indexes into the outer list,
+            # .column() indexes into the sub-list
+            return self._data[index.row()][index.column()]
 
     def rowCount(self, index):
         # The length of the outer list.
@@ -83,6 +164,7 @@ class TableModel(QAbstractTableModel):
         # The following takes the first sub-list, and returns
         # the length (only works if all rows are an equal length)
         return len(self._data[0])
+
 
 def main():
     app = QApplication(sys.argv)
